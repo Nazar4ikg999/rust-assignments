@@ -1,71 +1,62 @@
-use anyhow::Result;
-use clap::{ArgAction, Parser};
-use config as cfg;
+use clap::Parser;
 use serde::{Deserialize, Serialize};
+use config::{Config, ConfigError, Environment, File};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct AppConfig {
-    debug: bool,
-    host: String,
-    port: u16,
+    pub debug: bool,
+    pub log_level: String,
+    pub log_file: String,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            debug: false,
+            log_level: "info".to_string(),
+            log_file: "app.log".to_string(),
+        }
+    }
+}
+
+impl AppConfig {
+    fn from_sources(conf_path: &str) -> Result<Self, ConfigError> {
+        let defaults = AppConfig::default();
+
+        let builder = Config::builder()
+            .set_default("debug", defaults.debug)?
+            .set_default("log_level", defaults.log_level.clone())?
+            .set_default("log_file", defaults.log_file.clone())?
+            .add_source(File::with_name(conf_path).required(false))
+            .add_source(Environment::with_prefix("CONF").separator("_"));
+
+        builder.build()?.try_deserialize()
+    }
 }
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "task_3_9",
-    version,
-    about = "Prints its configuration to STDOUT"
+    name = "config-app",
+    about = "Assignment 5: configuration demo (defaults + TOML + ENV + CLI)"
 )]
 struct Cli {
-
-    #[arg(short = 'd', long = "debug", action = ArgAction::SetTrue)]
+    #[arg(short, long)]
     debug: bool,
 
-
-    #[arg(
-        short = 'c',
-        long = "conf",
-        env = "CONF_FILE",
-        default_value = "config.toml"
-    )]
+    #[arg(short, long, env = "CONF_FILE", default_value = "config.toml")]
     conf: String,
 }
 
-fn build_config(cli: &Cli) -> Result<AppConfig> {
-
-    let builder = cfg::Config::builder()
-        .set_default("debug", false)?
-        .set_default("host", "127.0.0.1")?
-        .set_default("port", 8080u16)?;
-
-    let builder = builder.add_source(cfg::File::with_name(&cli.conf).required(false));
-
-
-    let builder = builder.add_source(
-        cfg::Environment::with_prefix("CONF")
-            .separator("_")
-            .try_parsing(true),
-    );
-
-    let settings = builder.build()?;
-
-    let mut config: AppConfig = settings.try_deserialize()?;
-
-
-    if cli.debug {
-        config.debug = true;
-    }
-
-    Ok(config)
-}
-
-fn main() -> Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
-    let config = build_config(&cli)?;
+    let mut cfg = AppConfig::from_sources(&cli.conf)?;
 
-    let toml_str = toml::to_string_pretty(&config)?;
-    println!("{toml_str}");
+    if cli.debug {
+        cfg.debug = true;
+    }
+
+    println!("{:#?}", cfg);
 
     Ok(())
 }
